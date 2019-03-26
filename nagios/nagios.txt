@@ -1,0 +1,601 @@
+nagios监控工具 
+
+	显示监控状态
+		ok, warn, critial, unknown
+
+	高度插件化工具
+		check_by_ssh
+		check_nt
+		check_nrpe
+		check_nsca
+		check_snmp
+		自定义插件
+	
+
+nagios实现监控的对象	
+
+	Host 	主机			HostGroup	主机组
+	Service	服务
+	command	命令
+	timeperiod	时间段
+	Contact		联系人		ContactGroup	联系人组
+	Template	模板
+
+
+
+部署nagios监控端 
+
+1、安装nagios核心
+
+1) 安装nagios依赖软件 
+
+[root@nagios ~]# yum install -y httpd mariadb-server php php-mysql gd php-gd mariadb-devel
+
+[root@nagios ~]# systemctl start httpd
+[root@nagios ~]# systemctl enable httpd
+Created symlink from /etc/systemd/system/multi-user.target.wants/httpd.service to /usr/lib/systemd/system/httpd.service.
+
+[root@nagios ~]# systemctl start mariadb
+[root@nagios ~]# systemctl enable mariadb
+Created symlink from /etc/systemd/system/multi-user.target.wants/mariadb.service to /usr/lib/systemd/system/mariadb.service.
+
+2) 创建naigos用户
+
+[root@nagios ~]# groupadd nagcmd
+[root@nagios ~]# useradd -G nagcmd nagios
+[root@nagios ~]# usermod -aG nagcmd apache
+
+3) 安装nagios核心
+
+[root@nagios ~]# tar zxf nagios-3.2.0.tar.gz 
+[root@nagios ~]# cd nagios-3.2.0
+[root@nagios nagios-3.2.0]# ./configure --with-command-group=nagcmd
+[root@nagios nagios-3.2.0]# make all
+[root@nagios nagios-3.2.0]# make install				>>>生成nagios相关的文件
+[root@nagios nagios-3.2.0]# make install-init			>>>生成nagios服务脚本
+[root@nagios nagios-3.2.0]# make install-commandmode	>>>设置nagios权限
+[root@nagios nagios-3.2.0]# make install-config			>>>生成配置文件
+[root@nagios nagios-3.2.0]# make install-webconf		>>>生成httpd子配置文件
+
+
+	
+创建一个登录nagios web页面的用户，这个用户账号在以后通过web登录nagios时使用
+
+[root@nagios ~]# htpasswd -c /usr/local/nagios/etc/htpasswd.users nagiosadmin
+New password: 
+Re-type new password: 
+Adding password for user nagiosadmin
+[root@nagios ~]# 
+
+
+nagios目录介绍：
+
+	/usr/local/nagios				安装目录
+	/usr/local/nagios/etc			配置文件
+	/usr/local/nagios/libexec		插件
+
+
+
+2、安装nagios插件
+
+# tar zxf nagios-plugins-1.5.tar.gz 
+# cd nagios-plugins-1.5
+# ./configure --with-nagios-user=nagios --with-nagios-group=nagios
+# make && make install
+	
+
+通过# ls /usr/local/nagios/libexec/命令可查看到插件表明插件安装成功
+
+启动nagios服务，并设置开机自启动
+
+[root@nagios ~]# /etc/init.d/nagios start
+Reloading systemd:                                         [  确定  ]
+Starting nagios (via systemctl):                           [  确定  ]
+[root@nagios ~]# chkconfig --add nagios
+[root@nagios ~]# chkconfig nagios on
+
+[root@nagios ~]# systemctl restart httpd
+
+http://192.168.122.101/nagios
+
+
+
+
+
+
+
+
+
+配置nagios
+	nagios配置文件保存在/usr/local/nagios/etc目录下
+	
+nagios插件目录
+	/usr/local/nagios/libexec
+
+
+监控主机的流程：
+
+1、定义command    commands.cfg 
+
+define command{
+	command_name	
+	command_line	$USER1$/.... 
+}
+
+
+2、定义主机、服务	
+
+define host{
+	host_name	
+	address		
+}
+
+define service {
+
+	host_name	...
+	command 	command_name 
+
+}
+
+3、nagios.cfg 主配置文件 
+
+	cfg_file=
+
+
+	
+	
+	
+	
+	
+	
+	
+	
+
+Nagios监控windows主机
+	NSClient++
+		nagios通过check_nt插件与windows NSClient++通信	
+		NSClient++可提供check_nt，check_nrpe及NSCA的能力
+		NSClient++监听在12489/tcp端口与check_nt插件通信
+	
+	
+配置check_nt与NSClient++监控windows主机
+
+1、定义命令command
+
+# vim /usr/local/nagios/etc/objects/commands.cfg 
+
+define command{
+        command_name    check_nt
+        command_line    $USER1$/check_nt -H $HOSTADDRESS$ -p 12489 -v $ARG1$ $ARG2$
+        }
+
+2、定义主机host及服务service
+
+# vim /usr/local/nagios/etc/objects/windows.cfg 
+
+define host{
+        use             windows-server  ; Inherit default values from a template
+        host_name       winhost; The name we're giving to this host
+        alias           My Windows Server       ; A longer name associated with the host
+        address         10.1.1.254      ; IP address of the host
+        }
+
+define service{
+        use                     generic-service
+        host_name               winxp
+        service_description     E:\ Drive Space
+        check_command           check_nt!USEDDISKSPACE!-l e -w 80 -c 90
+        }
+
+		
+   
+3、启用主机配置文件	
+# vim /usr/local/nagios/etc/nagios.cfg 
+cfg_file=/usr/local/nagios/etc/objects/windows.cfg
+
+4、检测配置文件语法，并重启nagios服务
+# /usr/local/nagios/bin/nagios -v /usr/local/nagios/etc/nagios.cfg 
+[root@nagios etc]# /etc/init.d/nagios restart
+
+	
+浏览器访问http://192.168.122.101/nagios查看监控状态数据	
+
+
+
+
+
+
+
+
+配置check_nrpe监控Linux
+
+	监控端通过check_nrpe与被监控端nrpe进程通信
+	nrpe监听在5666/tcp端口 
+	监控端、被监控端都需要安装nrpe addon，被监控端需要启动nrpe服务
+	
+	
+一、监控Linux 主机192.168.122.102
+	
+1、在被监控主机上安装nrpe并配置
+
+1)创建nagios用户
+
+# useradd -s /sbin/nologin nagios
+
+2)nrpe依赖于nagios-plugins，安装nagios-plugins 
+
+# tar zxf nagios-plugins-1.4.14.tar.gz 
+# cd nagios-plugins-1.4.14
+# ./configure --with-nagios-user=nagios --with-nagios-group=nagios
+# make all
+# make install
+
+
+3)安装nrpe
+
+# tar zxf nrpe-2.15.tar.gz  
+# cd nrpe-2.15
+# ./configure --with-nrpe-user=nagios --with-nrpe-group=nagios --with-nagios-user=nagios --with-nagios-group=nagios 
+# make all
+# make install-plugin
+# make install-daemon					>>>>安装为服务
+# make install-daemon-config			>>>>生成配置文件
+
+
+4）配置nrpe	
+
+# vim /usr/local/nagios/etc/nrpe.cfg 
+
+log_facility=daemon
+pid_file=/var/run/nrpe.pid	
+server_port=5666
+server_address=192.168.122.102
+nrpe_user=nagios
+nrpe_group=nagios
+allowed_hosts=192.168.122.101
+command_timeout=60
+
+定义监控本地资源的命令
+
+command[check_users]=/usr/local/nagios/libexec/check_users -w 5 -c 10
+command[check_load]=/usr/local/nagios/libexec/check_load -w 15,10,5 -c 30,25,20
+command[check_vda1]=/usr/local/nagios/libexec/check_disk -w 20% -c 10% -p /dev/vda1
+command[check_root]=/usr/local/nagios/libexec/check_disk -w 20% -c 10% -p /dev/centos/root
+command[check_home]=/usr/local/nagios/libexec/check_disk -w 20% -c 10% -p /dev/centos/home
+command[check_zombie_procs]=/usr/local/nagios/libexec/check_procs -w 5 -c 10 -s Z
+command[check_total_procs]=/usr/local/nagios/libexec/check_procs -w 150 -c 200 
+
+
+启动nrpe服务　
+
+[root@node01 ~]# /usr/local/nagios/bin/nrpe -c /usr/local/nagios/etc/nrpe.cfg -d
+[root@node01 ~]# ss -antp | grep nrpe
+LISTEN     0      5      192.168.122.102:5666                     *:*                   users:(("nrpe",pid=22352,fd=4))
+
+
+
+
+5)编写启动nrpe服务脚本
+
+# vim /etc/rc.d/init.d/nrpe
+
+#!/bin/bash
+#
+# chkconfig: 2345 88 12
+# description: NRPE DAEMON
+
+NRPE=/usr/local/nagios/bin/nrpe
+NRPECONF=/usr/local/nagios/etc/nrpe.cfg
+
+case $1 in
+  start)
+    echo -n "Starting NRPE damon...."
+    $NRPE -c $NRPECONF -d
+    echo "Done..."
+    ;;
+  stop)
+    echo -n "Stopping NRPE daemon...."
+    pkill -u nagios nrpe
+    echo "Done...."
+    ;;
+  restart)
+    $0 stop
+    sleep 2
+    $0 start
+    ;;
+  *)
+   echo "Usage: $0 { start | stop | restart }"
+   ;;
+esac
+exit 0
+
+[root@node01 ~]# chmod a+x /etc/init.d/nrpe
+[root@node01 ~]# chkconfig --add nrpe
+[root@node01 ~]# chkconfig nrpe on
+
+
+        
+
+
+2、在监控端安装nrpe
+
+1)安装nrpe 
+
+# tar zxf nrpe-2.15.tar.gz 
+# cd nrpe-2.15
+# ./configure --with-nrpe-user=nagios --with-nrpe-group=nagios --with-nagios-user=nagios --with-nagios-group=nagios 
+# make all
+# make install-plugin
+
+安装完成后，在/usr/local/nagios/libexec目录下会产生check_nrpe插件
+通过以下命令可测试插件是否工作正常
+
+[root@nagios libexec]# ./check_nrpe -H 192.168.122.102
+NRPE v2.12
+[root@nagios libexec]# 
+
+
+3、配置监控Linux主机
+
+1)定义命令command
+
+# vim /usr/local/nagios/etc/objects/commands.cfg 
+
+define command{
+        command_name    check_nrpe
+        command_line    $USER1$/check_nrpe -H $HOSTADDRESS$ -c $ARG1$
+}
+
+2)定义主机host及服务service
+
+# cp /usr/local/nagios/etc/objects/localhost.cfg /usr/local/nagios/etc/objects/linux.cfg
+# vim /usr/local/nagios/etc/objects/linux.cfg
+
+define host{
+	use		linux-server	
+	host_name	linuxhost
+	alias		My Linux Server
+	address		192.168.122.102
+	}
+
+define service{
+	use					generic-service
+	host_name			linuxhost
+	service_description	Users
+	check_command		check_nrpe!check_users
+	}
+
+define service{
+	use					generic-service
+	host_name			linuxhost
+	service_description	Load
+	check_command		check_nrpe!check_load
+	}
+
+define service{
+	use					generic-service
+	host_name			linuxhost
+	service_description	SDA1
+	check_command		check_nrpe!check_sda1
+	}
+
+define service{
+	use					generic-service
+	host_name			linuxhost
+	service_description	SDA2
+	check_command		check_nrpe!check_sda2
+	}
+
+
+define service{
+	use					generic-service
+	host_name			linuxhost
+	service_description	Zombie procs
+	check_command		check_nrpe!check_zombie_procs
+	}
+
+define service{
+	use					generic-service
+	host_name			linuxhost
+	service_description	total procs
+	check_command		check_nrpe!check_total_procs
+	}
+
+
+check_nrpe!check_total_procs
+	!后面为被监控端定义好的命令名称
+	
+3)启用主机配置文件
+# vim /usr/local/nagios/etc/nagios.cfg 
+
+	cfg_file=/usr/local/nagios/etc/objects/linux.cfg	
+	
+4)检测配置文件语法，并重启nagios服务
+
+# /usr/local/nagios/bin/nagios -v /usr/local/nagios/etc/nagios.cfg
+# service nagios restart	
+
+
+
+
+
+
+
+
+在192.168.122.102上分别安装web及mysql服务，配置监控端192.168.122.101监控这两个服务
+
+1、在192.168.122.102上安装web及mysql
+
+# yum install -y httpd mysql-server 
+# service httpd start
+# service mysqld start
+
+需要在mysql服务器上创建允许远程登录的用户
+
+mysql> GRANT all ON *.* TO 'admin'@'%' IDENTIFIED BY 'redhat';
+Query OK, 0 rows affected (0.00 sec)
+
+mysql> FLUSH PRIVILEGES;
+
+
+
+
+2、编辑command.cfg分别定义监控web及mysql服务的命令
+
+# vim /usr/local/nagios/etc/objects/commands.cfg 
+
+define command{
+        command_name    check_http
+        command_line    $USER1$/check_http -I $HOSTADDRESS$ $ARG1$
+        }
+		
+define command{
+        command_name    check_mysql
+        command_line    $USER1$/check_mysql -H $HOSTADDRESS$ -u $ARG1$ -p $ARG2$
+        }
+		
+	
+3、编辑linux.cfg配置文件，定义web及mysql服务
+
+# vim /usr/local/nagios/etc/objects/linux.cfg 
+
+define service{
+        use                     generic-service
+        host_name               linuxhost
+        service_description     Web Server
+        check_command           check_http
+        }
+
+define service{
+        use                     generic-service
+        host_name               linuxhost
+        service_description     Mysql Server
+        check_command           check_mysql!admin!redhat
+        }	
+	
+4、检测配置文件语法，并重启nagios服务
+
+# /usr/local/nagios/bin/nagios -v /usr/local/nagios/etc/nagios.cfg 
+# service nagios restart
+	
+	
+	
+	
+	
+示例01：通过check_nrpe监控192.168.122.102网卡流入流量 
+
+
+1) 在被监控端准备脚本
+
+[root@node01 ~]# cat /usr/local/nagios/libexec/check_in 
+#!/bin/bash
+#
+
+in_bytes=$(ifconfig eth0 | sed -n '5p' | awk '{print $3}')
+
+if [ $in_bytes -le 20000 ]; then
+   echo "Current Traffic: $in_bytes"
+   exit 0
+else
+   echo "Current Traffic: $in_bytes"
+   exit 1
+fi
+[root@node01 ~]# chmod a+x /usr/local/nagios/libexec/check_in
+	
+	
+2) 编辑nrpe的配置文件，定义本地命令
+
+[root@node01 ~]# vim /usr/local/nagios/etc/nrpe.cfg 
+
+	command[check_in]=/usr/local/nagios/libexec/check_in
+
+[root@node01 ~]# /etc/init.d/nrpe restart
+Stopping NRPE daemon....Done....
+Starting NRPE damon....Done...
+	
+	
+3) 在监控端手动测试通过check_nrpe是否可正常调用check_in命令
+
+[root@nagios libexec]# ./check_nrpe -H 192.168.122.102 -c check_in
+Current Traffic: 20414
+	
+	
+4) 编辑linux.cfg主机配置文件，添加服务 
+
+[root@nagios ~]# vim /usr/local/nagios/etc/objects/linux.cfg 
+
+
+define service{
+        use                             local-service
+        host_name                       linuxsrv
+        service_description             Traffic IN
+        check_command                   check_nrpe!check_in
+        }
+	
+[root@nagios ~]# /etc/init.d/nagios restart
+
+
+5) 测试 
+
+
+	
+
+	
+	
+	
+	
+	
+配置Nagios邮件报警　
+
+
+测试邮件发送正常：
+
+[root@localhost ~]# mail -s "nagios test" < /etc/fstab <收件人地址>
+
+
+
+
+
+配置联系人的邮件地址　
+
+# vim /usr/local/nagios/etc/objects/contacts.cfg 
+
+define contact{
+        contact_name                    nagiosadmin 
+        use                             generic-contact
+        alias                           Nagios Admin
+        email                           <收件人地址>
+        }
+
+
+# service nagios restart
+
+可在模板配置文件templates.cfg中，找到windows-server, linux-server, generic-service模板定义，修改检测的时间周期
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
